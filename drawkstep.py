@@ -1,13 +1,11 @@
 from __future__ import absolute_import
 from __future__ import division
 import math, sys, os, re, time, collections, argparse, copy, subprocess
-from scipy.sparse.csgraph import connected_components,csgraph_from_dense
 from tempfile import NamedTemporaryFile
-from itertools import izip,combinations,chain
+from itertools import izip,combinations
 from Bio import SeqIO
 import networkx as nx
 import numpy as np
-from ghost.util.distance import hamming
 
 #program breaking conditions:
     #assumes same sequence will not appear twice in one file (not sure which error this will cause (maybe none?))
@@ -125,22 +123,23 @@ def make_allDistTuple(seqs,scheme): #compute distances (manually) between all se
     return retstruct,g
         
 def make_allDistTuple_fast(seqs,scheme): #compute distances (with ghost's hamming function) between all sequences, initialize graph with nodes
-        print("Making kstep network (with ghost)")
-        dist_array=calc_distance_matrix(seqs)
-        ourStructure=[]
-        for item in combinations(seqs,2):
-                seq1=item[0]
-                seq2=item[1]
-                node1=int(seqs[seq1][1])
-                node2=int(seqs[seq2][1])                
-                dist=dist_array[node1-1,node2-1]
-                ourStructure.append((dist,(node1,node2)))
-        retstruct=iter(sorted(ourStructure,key=lambda t:t[0]))
-        g=nx.Graph()
-        for seq in seqs:
-                cstr=str(int(seqs[seq][0])+1)
-                g.add_node(int(seqs[seq][1]),colorscheme=scheme,color=cstr,shape='point',freq=seqs[seq][2])
-        return retstruct,g
+    print("Making kstep network (with ghost)")
+    from ghost.util.distance import hamming
+    dist_array=calc_distance_matrix(seqs)
+    ourStructure=[]
+    for item in combinations(seqs,2):
+        seq1=item[0]
+        seq2=item[1]
+        node1=int(seqs[seq1][1])
+        node2=int(seqs[seq2][1])                
+        dist=dist_array[node1-1,node2-1]
+        ourStructure.append((dist,(node1,node2)))
+    retstruct=iter(sorted(ourStructure,key=lambda t:t[0]))
+    g=nx.Graph()
+    for seq in seqs:
+        cstr=str(int(seqs[seq][0])+1)
+        g.add_node(int(seqs[seq][1]),colorscheme=scheme,color=cstr,shape='point',freq=seqs[seq][2])
+    return retstruct,g
         
 def calc_distance_matrix(finalSeqs): #calculate distance matrix from list of sequences using ghost's hamming function
     l=len(finalSeqs)
