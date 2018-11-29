@@ -21,8 +21,9 @@ I will post a troubleshooting pygraphviz installation section soon
 
 ##### Potentially useful tip:
 If you do not have root access on your machine, you may find the following configure command useful:
+```
 ./configure  --enable-perl=no --enable-python27=yes --enable-java=no --enable-r=no --enable-ruby=no --enable-tcl=no --prefix ~/.local/
-
+```
 # A note about input formatting
 Input must be a valid FASTA file.
 
