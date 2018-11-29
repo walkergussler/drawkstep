@@ -7,12 +7,9 @@ Python 2.7 code
 
 ### nonstandard python modules
 
-numpy
-
-networkx
-
 biopython
-
+networkx
+numpy
 [pygraphviz](https://pypi.org/project/pygraphviz/)
 
 I will post a troubleshooting pygraphviz installation section soon

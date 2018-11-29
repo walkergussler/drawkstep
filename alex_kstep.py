@@ -1,8 +1,7 @@
-from __future__ import absolute_import
-from __future__ import division
+from __future__ import absolute_import, division
 import math, sys, os, time, collections, argparse, subprocess
 from tempfile import NamedTemporaryFile
-from itertools import combinations
+from itertools import izip, combinations
 from Bio import SeqIO
 import networkx as nx
 import numpy as np
@@ -71,24 +70,23 @@ def get_seqs(files,freqCut,output): #parse input
                     try:
                         freq=int(record.id.split('_')[-1])
                     except:
-                        print(record.id)
-                        raw_input()
+                        sys.exit('something has gone wrong')
                     if record.seq in seqs: #not a new sequence
                         fileFreqs[0]+=1
                         oldsource=int(seqs[record.seq][0])
                         oldID=seqs[record.seq][1]
                         fileFreqs[oldsource]-=1
                         newfreq=int(seqs[record.seq][2]) + freq
-                        seqs[record.seq]=np.array(map(str,['0',oldID,newfreq]))
+                        seqs[record.seq]=np.array([0,oldID,newfreq])
                     else: #new sequence
                         counter+=1
                         fileFreqs[fileNum]+=1
-                        seqs[record.seq]=np.array(map(str,[fileNum,counter,freq]))
+                        seqs[record.seq]=np.array([fileNum,counter,freq])
 
     if freqCut>0:
         (seqs,fileFreqs)=trim_by_freq(seqs,freqCut,fileFreqs)
     print("There are %i sequences in this network" % len(seqs))
-    return (seqs,fileFreqs)
+    return (seqs,fileFreqs,counter)
 
 def trim_by_freq(seqs,freqCut,fileFreqs): #only consider sequences with frequency greater than or equal to freqCut
     print("trimming")
@@ -103,189 +101,126 @@ def trim_by_freq(seqs,freqCut,fileFreqs): #only consider sequences with frequenc
             fileFreqs[int(seqs[seq][0])]-=1
     return (newseqs,fileFreqs)
 
-def make_allDistTuple(seqs,scheme): #compute distances (manually) between all sequences, initialize graph with nodes
-    print("Making kstep network...")
-    ourStructure=[]
-
-    for item in combinations(seqs,2):
-        seq1=item[0]
-        seq2=item[1]
-        dist=sum(0 if a == b else 1 for a,b in zip(seq1,seq2))
-        node1=int(seqs[seq1][1])
-        node2=int(seqs[seq2][1])
-        ourStructure.append((dist,(node1,node2)))
-        retstruct=iter(sorted(ourStructure,key=lambda t:t[0]))
-
-    g=nx.Graph()
-    for seq in seqs:
-        cstr=str(int(seqs[seq][0])+1)
-        g.add_node(int(seqs[seq][1]),colorscheme=scheme,color=cstr,shape='point',freq=seqs[seq][2])
-    return retstruct,g
-        
-def make_allDistTuple_fast(seqs,scheme): #compute distances (with ghost's hamming function) between all sequences, initialize graph with nodes
-    print("Making kstep network (with ghost)")
-    dist_array=calc_distance_matrix(seqs)
-    ourStructure=[]
-    for item in combinations(seqs,2):
-        seq1=item[0]
-        seq2=item[1]
-        node1=int(seqs[seq1][1])
-        node2=int(seqs[seq2][1])                
-        dist=dist_array[node1-1,node2-1]
-        ourStructure.append((dist,(node1,node2)))
-    retstruct=iter(sorted(ourStructure,key=lambda t:t[0]))
-    g=nx.Graph()
-    for seq in seqs:
-        cstr=str(int(seqs[seq][0])+1)
-        g.add_node(int(seqs[seq][1]),colorscheme=scheme,color=cstr,shape='point',freq=seqs[seq][2])
-    return retstruct,g
-        
-def calc_distance_matrix(finalSeqs): #calculate distance matrix from list of sequences using ghost's hamming function
-    from ghost.util.distance import hamming
-    l=len(finalSeqs)
-    arr=np.zeros([l,l])
-    hdist=hamming(finalSeqs,finalSeqs,ignore_gaps=False)
-    
-    for id in range(len(hdist)):
-        item=hdist[id]
-        arr[:,id]=item[:,0]
-    return arr
-
-def kstep(distances,g,threshold=float('inf')):
-    """\
-    Build a k-step network.
-    :param d_iter: An iterable which yields distances in the form of a tuple of tuples (distance,(node name 1,node name 2))
-    :param g: A NetworkX graph initialized with nodes using ids from the iterable.
-    :param connect: Throw an exception if the graph is not connected by the k-step network.
-    """
-    d_iter=iter(distances)
-    uf=union_find(g.nodes())
-    current,(i,j)=next(d_iter)
-    d_next,(n_i,n_j)=current,(i,j)
-    
+def calc_ordered_frequencies(haploNum,haploSize,seqDict,byFreq): 
+    seqs=seqDict.keys()
+    freqCount = np.zeros((haploSize, 5))
+    productVector = np.zeros((haploSize, 5))
+    order={'A':0,'C':1,'G':2,'T':3,'-':4}
     try:
-        while current<threshold and not uf.connected():
-            next_uf=copy.deepcopy(uf)
+        total_reads=0
+        for read in seqs:
+            if byFreq:
+                freq=seqs[read]
+            else:
+                freq=1
+            total_reads+=freq
+            for pos in range(haploSize):
+                num=order[read[pos]]
+                freqCount[pos, num] = freqCount[pos, num] + freq
+        freqRel = np.divide(freqCount, float(total_reads), dtype = float)
+    
+    except IndexError:
+        print("Your files are not aligned and it caused an error! Try again with -a")
+    
+    for pos in range(haploSize):
+        for i in range(5):
+            freqPos = freqRel[pos, i]
+            if freqPos > 0:
+                logFreqRel = math.log(freqPos, 2)
+                productVector[pos, i] = -1*(np.multiply(freqPos, logFreqRel, dtype = float))                
+    return np.sum(productVector, axis = 1)
+
+def order_positions(hVector,seqs,haploSize): #order positions for faster building of k-step network
+    invH =  np.multiply(-1, hVector, dtype = float)
+    ordH = np.argsort(invH)
+    # reorder the sequences by entropy
+    ordSeqs = {}
+
+    for seq in seqs:
+        newOne = ''
+        for p in range(haploSize):
+            newOne = ''.join([newOne, seq[ordH[p]]])
+        ordSeqs[newOne]=seqs.pop(seq)
+        # ordSeqs.append(newOne)
+    return ordSeqs
+
+def calc_kstep(haploNum,haploSize,seqs): 
+    bDict={}
+    g=nx.Graph()
+    t = 0
+    for seq in seqs:
+        [_,counter,_]=seqs[seq]
+        g.add_node(counter)
+        bDict[counter]=seq
+    while not nx.is_connected(g):
+        t = t + 1
+        for seq1,seq2 in combinations(seqs.keys(),2):
+            [color1,counter1,freq1]=seqs[seq1]
+            [color2,counter2,freq2]=seqs[seq2]
             
-            while d_next == current:
-                if uf.find(n_i) != uf.find(n_j):
-                    g.add_edge(n_i,n_j,len=d_next)
-                    next_uf.join(n_i,n_j)
-                d_next,(n_i,n_j)=next(d_iter)
+            dist = 0
+            for a, b in izip(seq1, seq2):
+                if a != b:
+                    dist+=1
+                    if dist > t:
+                        break
+            if dist == t: 
+                g.add_edge(counter1,counter2,len=dist)
+    return g,bDict
 
-            uf=next_uf
-            current=d_next
-            i=n_i
-            j=n_j
+def get_intermediate_sequences(seqs,g,id,bDict,haploSize): #add edges in here to be faster
+    for edge1,edge2,d in g.edges_iter(data=True):
+        dist=d['len']
+        s1=bDict[edge1]
+        s2=bDict[edge2]
+        # print(dist)
+        if dist!=1:
+            while dist>1:
+                id+=1
+                for nucl in range(haploSize):
+                    if s1[nucl]!=s2[nucl]:
+                        takeseq1=s1[:nucl+1]+s2[nucl+1:]
+                        takeseq2=s1[:nucl]+s2[nucl:]
+                        if takeseq1!=s1:
+                            newseq=takeseq1
+                        else:
+                            newseq=takeseq2
+                dist-=1
+                s1=newseq
+                if newseq not in seqs:
+                    seqs[newseq]=[8,id,1]
+    return seqs
 
-    except StopIteration:
-        if current<threshold and not uf.connected():
-            raise ValueError('kstep network did not connect network.')
-    return g
-
-class union_find(object): # this could be replaced with an import statement
-    ### An implementation of union find data structure.
-    ### It uses weighted quick union by rank with path compression.
-
-    def __init__(self,node_ids):
-        """\
-        Initialize an empty union find object.
-        :param node_ids: The identifiers of the nodes.
-        """
-        self._sets={
-                node_id : {
-                    'rank' : 0,
-                    'parent' : node_id
-                }  for idx,node_id in enumerate(node_ids)
-        }
-        self.component_count=len(self._sets)
-
-    def find(self,x):
-        try:
-            p_idx=self._sets[x]['parent']
-            if p_idx != x:
-                self._sets[x]['parent']=self.find(self._sets[p_idx]['parent'])
-            return self._sets[x]['parent']
-        except KeyError:
-            raise KeyError('ID {0}is not a member of the union'.format(x))
-
-    def join(self,p,q):
-        # # # Combine sets containing p and q into a single set.
-        p_id=self.find(p)
-        q_id=self.find(q)
-        pRoot=self._sets[p_id]
-        qRoot=self._sets[q_id]
-        if p_id != q_id:
-            self.component_count -= 1
-        if pRoot['rank']<qRoot['rank']:
-            pRoot['parent']=q_id
-        elif pRoot['rank'] > qRoot['rank']:
-            qRoot['parent']=p_id
-        else:
-            qRoot['parent']=p_id
-            pRoot['rank'] += 1
-
-    def connected(self):
-        it=iter(self._sets)
-        f=self.find(next(it))
-        for i in it:
-            if self.find(i) != f:
-                return False
-        return True
-
-def edit_graph(g,numNodes,drawmode): #dynamically determine some properties of the figure such as edge color and node size
-    print("Editing graph...")
+def seqs_to_nx(seqs): 
+    g=nx.Graph()
+    numNodes=len(seqs)
     gstr='gray{}'.format(int(math.ceil(70*(-math.exp(-numNodes/1000)+1)+20)))
+        
     w_i = .07
     if numNodes <= 3000:
         w_i = math.exp(-numNodes/500)*.2+.07
-    for item in g.nodes():
-        freq=int(g.node[item]['freq'])
+    
+    for seq in seqs:
+        [color,id,freq]=seqs[seq]
         mult = 4
         if freq <= 2000:
             mult = -math.exp(-freq/300)*2.2+4
         w=mult*w_i
         w=str(w)
-        g.node[item]['width']=w
-
-    for u,v,data in g.edges(data=True):
-        dist=int(data['len'])
-        if dist<10:
-            data['color']=gstr
-            if drawmode=='weights':
-                data['label']=dist
-                data['fontsize']=24
-        else:
-            if drawmode=='dont': # we probably dont need these lines
-                g.remove_edge(u,v) #we probably dont need these lines
-            elif drawmode=='white':
-                color1=g.node[u]['color']
-                color2=g.node[v]['color']
-                if color1!=color2 and color1!=0 and color2 !=0:
-                    data['color']='white'
-                    data['len']=9
-            elif drawmode=='red':
-                color1=g.node[u]['color']
-                color2=g.node[v]['color']
-                if color1!=color2 and color1!=0 and color2 !=0:
-                    data['color']='red'
-                    data['len']=9
-                    data['label']=dist
-                    data['fontsize']=24
-            elif drawmode=='allred':
-                data['color']='red'
-                data['len']=9
-                data['label']=dist
-                data['fontsize']=24
-            elif drawmode=='weights':
-                data['color']=gstr
-                data['label']=dist
-                data['len']=9
-                data['fontsize']=24
-            else:
-                sys.exit("You have entered an invalid option for drawmode. Look at help for more info")
+        # print(w,color,freq,w_i,mult)
+        g.add_node(id,color=int(color)+1,shape='point',width=w,colorscheme='set19')
+        for seq2 in seqs:
+            dist=0
+            
+            for a, b in izip(seq, seq2):
+                if a != b:
+                    dist += 1
+                    if dist > 1:
+                        break
+            if dist==1:
+                g.add_edge(seqs[seq2][1],id,color=gstr)
     return g
-
+    
 MAX_LEGEND_FONT_SIZE = 200
 LEGEND_FONT_SIZE = {
   100 : 6,
@@ -355,26 +290,36 @@ def trimfh(handle):
     return os.path.splitext(os.path.basename(handle))[0]
 
 def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,show):
+    import time
+    start=time.time()
     if ali==True:
         files=pre_align(prefiles)
         file_names=prefiles
     else:
         files=prefiles
         file_names=False
-    
-    seqs,fileFreqs=get_seqs(files,freqCut,output)
-    if ghost:
-        allDistTuple,g=make_allDistTuple_fast(seqs,colorscheme)
-    else:
-        allDistTuple,g=make_allDistTuple(seqs,colorscheme)        
-    
-    if drawmode=='dont':
-        g=kstep(allDistTuple,g,threshold=10)
-    else:
-        g=kstep(allDistTuple,g)
-
-    numNodes=sum(fileFreqs)
-    g=edit_graph(g,numNodes,drawmode)
+    print('hello',time.time()-start)
+    seqs,fileFreqs,counter=get_seqs(files,freqCut,output)
+    haploNum=len(seqs)
+    haploSize=len(seqs.keys()[0])
+    print(len(seqs))
+    # print(seqs)
+    print('got seqs',time.time()-start)
+    hVector=calc_ordered_frequencies(haploNum,haploSize,seqs,False)
+    ordSeqs=order_positions(hVector,seqs,haploSize)
+    print('prepared kstep',time.time()-start)
+    print(len(ordSeqs))
+    # print(ordSeqs)
+    g,bDict=calc_kstep(haploNum,haploSize,ordSeqs)
+    print('built kstep',time.time()-start)
+    finalSeqs=get_intermediate_sequences(ordSeqs,g,counter,bDict,haploSize)
+    print(len(finalSeqs))
+    print('got intermediates',time.time()-start)
+    # for item in finalSeqs:
+        # print(finalSeqs[item])
+    # g=kstep(allDistTuple,g)
+    g=seqs_to_nx(finalSeqs)
+    print('into nx',time.time()-start)
     tmp=nx.drawing.nx_agraph.to_agraph(g)
     if keepfiles:
         tmp.write("tmp0") 
@@ -402,9 +347,7 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
                     add_legend(tmp1name,output,file_names,fontSize,fileFreqs,colorscheme)
                 subprocess.check_call(['neato','-Tpng',output,'-n2','-O'])
                 os.unlink(output)
-    end=time.time()
-    diff=end-start
-    print("All finished! It took %.2f seconds to produce your chart" % diff)
+    print("All finished! It took",  time.time()-start)
     if show:
         try:
             subprocess.check_call(['firefox',output+'.png'])
@@ -428,7 +371,7 @@ if __name__=="__main__":
         action='store_true',default=False,
         help="Pass this as an argument to align your files; this will cause the program to run much more slowly if you add -f")
     parser.add_argument('-s','--show',
-        action='store_true',default=False,
+        action='store_true',default=True,
         help="Show picture when process is finished")
     parser.add_argument('-g','--ghost',
         action='store_true',default=False,
