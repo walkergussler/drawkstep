@@ -17,6 +17,11 @@ I will post a troubleshooting pygraphviz installation section soon
 ### other prerequisites
 
 [mafft](http://mafft.cbrc.jp/alignment/software)
+[graphviz](https://www.graphviz.org/download)
+
+##### Potentially useful tip:
+If you do not have root access on your machine, you may find the following configure command useful:
+./configure  --enable-perl=no --enable-python27=yes --enable-java=no --enable-r=no --enable-ruby=no --enable-tcl=no --prefix ~/.local/
 
 # A note about input formatting
 Input must be a valid FASTA file.
