@@ -6,6 +6,7 @@ from itertools import combinations
 from Bio import SeqIO
 import networkx as nx
 import numpy as np
+from copy import deepcopy
 
 #program breaking conditions:
     #assumes same sequence will not appear twice in one file (not sure which error this will cause (maybe none?))
@@ -64,12 +65,14 @@ def get_seqs(files,freqCut,output): #parse input
     fileFreqs=np.zeros(numFiles+1)
     seqs=collections.OrderedDict()
     counter=0
+    total_freq=0
     for fileNum,file in enumerate(files,start=1):
         with open(file) as input_handle:
             for record in SeqIO.parse(input_handle,"fasta"):
                 if len(record.seq) > 0 and len(record.seq) < 50000:
                     try:
                         freq=int(record.id.split('_')[-1])
+                        total_freq+=freq
                     except:
                         print(record.id)
                         raw_input()
@@ -79,16 +82,16 @@ def get_seqs(files,freqCut,output): #parse input
                         oldID=seqs[record.seq][1]
                         fileFreqs[oldsource]-=1
                         newfreq=int(seqs[record.seq][2]) + freq
-                        seqs[record.seq]=np.array(map(str,['0',oldID,newfreq]))
+                        seqs[record.seq]=np.array(list(map(str,['0',oldID,newfreq])))
                     else: #new sequence
                         counter+=1
                         fileFreqs[fileNum]+=1
-                        seqs[record.seq]=np.array(map(str,[fileNum,counter,freq]))
+                        seqs[record.seq]=np.array(list(map(str,[fileNum,counter,freq])))
 
     if freqCut>0:
         (seqs,fileFreqs)=trim_by_freq(seqs,freqCut,fileFreqs)
     print("There are %i sequences in this network" % len(seqs))
-    return (seqs,fileFreqs)
+    return (seqs,fileFreqs,total_freq)
 
 def trim_by_freq(seqs,freqCut,fileFreqs): #only consider sequences with frequency greater than or equal to freqCut
     print("trimming")
@@ -165,7 +168,7 @@ def kstep(distances,g,threshold=float('inf')):
     
     try:
         while current<threshold and not uf.connected():
-            next_uf=copy.deepcopy(uf)
+            next_uf=deepcopy(uf)
             
             while d_next == current:
                 if uf.find(n_i) != uf.find(n_j):
@@ -243,15 +246,23 @@ def edit_graph(g,numNodes,drawmode): #dynamically determine some properties of t
         freq=int(g.node[item]['freq'])
         mult = 4
         if freq <= 2000:
-            mult = -math.exp(-freq/300)*2.2+4
+            mult = -math.exp(-freq/300)*7+7.7
         w=mult*w_i
         w=str(w)
         g.node[item]['width']=w
-
+    trans_links=0
     for u,v,data in g.edges(data=True):
         dist=int(data['len'])
         if dist<10:
-            data['color']=gstr
+            c1=g.node[u]['color']
+            c2=g.node[v]['color']
+            if c1!=c2:
+                freq1=int(g.node[u]['freq'])
+                freq2=int(g.node[v]['freq'])
+                trans_links+=(freq1+freq2)/2
+                data['color']='green'
+            else:
+                data['color']=gstr
             if drawmode=='weights':
                 data['label']=dist
                 data['fontsize']=24
@@ -284,7 +295,7 @@ def edit_graph(g,numNodes,drawmode): #dynamically determine some properties of t
                 data['fontsize']=24
             else:
                 sys.exit("You have entered an invalid option for drawmode. Look at help for more info")
-    return g
+    return g, trans_links
 
 MAX_LEGEND_FONT_SIZE = 200
 LEGEND_FONT_SIZE = {
@@ -319,7 +330,7 @@ def determine_legend_font_size(g): #determine font size for legend
     # print('FONTSIZE:'+str(fontSize))
     return str(fontSize)
 
-def add_legend(file,output,files,fontSize,fileFreqs,scheme): #add legend to figure
+def add_legend(file,output,files,fontSize,fileFreqs,scheme,prop): #add legend to figure
     print("Adding legend...")
     with open(file) as f:
         lines=f.readlines()
@@ -337,10 +348,14 @@ def add_legend(file,output,files,fontSize,fileFreqs,scheme): #add legend to figu
                 g.write('\tLegend [shape=none,margin=0,pos="0,0",colorscheme='+scheme+' label=<\n')
                 g.write('\t<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">\n')
                 g.write('\t  <TR>\n')
+                g.write('\t    <TD><FONT COLOR="black" POINT-SIZE="%s">Transmission link participation</FONT></TD>\n' % (fontSize))
+                g.write('\t    <TD><FONT COLOR="black" POINT-SIZE="%s">%s</FONT></TD>\n' % (fontSize,prop))
+                g.write('\t  </TR>\n')
+                g.write('\t  <TR>\n')
                 g.write('\t    <TD><FONT COLOR="%i" POINT-SIZE="%s">Shared Sequences</FONT></TD>\n' % (1,fontSize))
                 g.write('\t    <TD><FONT COLOR="%i" POINT-SIZE="%s">%i</FONT></TD>\n' % (1,fontSize,fileFreqs[0]))
                 g.write('\t  </TR>\n')
-                
+
                 for id in range(len(files)):
                     file=files[id]
                     shortfile=trimfh(file)
@@ -362,7 +377,7 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
         files=prefiles
         file_names=False
     
-    seqs,fileFreqs=get_seqs(files,freqCut,output)
+    seqs,fileFreqs,total_freq=get_seqs(files,freqCut,output)
     if ghost:
         allDistTuple,g=make_allDistTuple_fast(seqs,colorscheme)
     else:
@@ -374,7 +389,8 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
         g=kstep(allDistTuple,g)
 
     numNodes=sum(fileFreqs)
-    g=edit_graph(g,numNodes,drawmode)
+    g,trans_count=edit_graph(g,numNodes,drawmode)
+    trans_prop=str(math.ceil(trans_count*100/float(total_freq)))+'%'
     tmp=nx.drawing.nx_agraph.to_agraph(g)
     if keepfiles:
         tmp.write("tmp0") 
@@ -382,9 +398,9 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
         h=nx.drawing.nx_agraph.read_dot('tmp1')
         fontSize=determine_legend_font_size(h)
         if type(file_names)==bool:
-            add_legend('tmp1',output,files,fontSize,fileFreqs,colorscheme)
+            add_legend('tmp1',output,files,fontSize,fileFreqs,colorscheme,trans_prop)
         else:
-            add_legend('tmp1',output,file_names,fontSize,fileFreqs,colorscheme)
+            add_legend('tmp1',output,file_names,fontSize,fileFreqs,colorscheme,trans_prop)
         print(output)
         subprocess.check_call(['neato','-Tpng',output,'-n2','-O'])
     else:
@@ -397,14 +413,15 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
                 h=nx.drawing.nx_agraph.read_dot(tmp1name)
                 fontSize=determine_legend_font_size(h)
                 if type(file_names)==bool:
-                    add_legend(tmp1name,output,files,fontSize,fileFreqs,colorscheme)
+                    add_legend(tmp1name,output,files,fontSize,fileFreqs,colorscheme,trans_prop)
                 else:
-                    add_legend(tmp1name,output,file_names,fontSize,fileFreqs,colorscheme)
+                    add_legend(tmp1name,output,file_names,fontSize,fileFreqs,colorscheme,trans_prop)
                 subprocess.check_call(['neato','-Tpng',output,'-n2','-O'])
                 os.unlink(output)
     end=time.time()
     diff=end-start
     print("All finished! It took %.2f seconds to produce your chart" % diff)
+    os.system('firefox kstep.png')
     if show:
         try:
             subprocess.check_call(['firefox',output+'.png'])

@@ -1,7 +1,17 @@
-# drawKstep 
-Draw a Graphical Representation of the Union of all Minimum Spanning Trees for a given sequence set.
+# draw 'K-step' 
+
+This package renders a 'k-step' diagram of some viral quasispecies populations and how close/far they are from each other!
+
+a 'k-step' diagram is defined as a graphical representation of the union of all minimum spanning trees over a given sequence set.
 Call this on a group of amplicon-sequenced quasispecies to make a picture to visually inspect how the clouds of quasispecies interact with one another
-Python 2.7 code
+
+## Example
+
+![k-step diagram](example.png)
+
+## How to interpret these diagrams
+
+![info diagram](info.png)
 
 ## Prerequisites
 
@@ -11,8 +21,6 @@ biopython
 networkx
 numpy
 [pygraphviz](https://pypi.org/project/pygraphviz/)
-
-I will post a troubleshooting pygraphviz installation section soon
 
 ### other prerequisites
 

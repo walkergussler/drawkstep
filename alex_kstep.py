@@ -50,7 +50,7 @@ def pre_align(files): #align files using mafft before processing
     aliNames=[]
     for id in range(len(seqses)):
         seqs=seqses[id]
-        print(len(seqs))
+        # print(len(seqs))
         file=files[id]
         with NamedTemporaryFile(delete=False) as f:
             SeqIO.write(seqs,f,'fasta')
@@ -58,7 +58,7 @@ def pre_align(files): #align files using mafft before processing
     return aliNames
     
 def get_seqs(files,freqCut,output): #parse input
-    print("getting seqs")
+    # print("getting seqs")
     numFiles=len(files)
     fileFreqs=np.zeros(numFiles+1)
     seqs=collections.OrderedDict()
@@ -85,7 +85,7 @@ def get_seqs(files,freqCut,output): #parse input
 
     if freqCut>0:
         (seqs,fileFreqs)=trim_by_freq(seqs,freqCut,fileFreqs)
-    print("There are %i sequences in this network" % len(seqs))
+    # print("There are %i sequences in this network" % len(seqs))
     return (seqs,fileFreqs,counter)
 
 def trim_by_freq(seqs,freqCut,fileFreqs): #only consider sequences with frequency greater than or equal to freqCut
@@ -255,7 +255,7 @@ def determine_legend_font_size(g): #determine font size for legend
     return str(fontSize)
 
 def add_legend(file,output,files,fontSize,fileFreqs,scheme): #add legend to figure
-    print("Adding legend...")
+    # print("Adding legend...")
     with open(file) as f:
         lines=f.readlines()
     l=len(lines)        
@@ -298,23 +298,23 @@ def main(prefiles,ali,output,freqCut,colorscheme,drawmode,start,keepfiles,ghost,
     else:
         files=prefiles
         file_names=False
-    print('hello',time.time()-start)
+    # print('hello',time.time()-start)
     seqs,fileFreqs,counter=get_seqs(files,freqCut,output)
     haploNum=len(seqs)
     haploSize=len(seqs.keys()[0])
-    print(len(seqs))
+    # print(len(seqs))
     # print(seqs)
-    print('got seqs',time.time()-start)
+    # print('got seqs',time.time()-start)
     hVector=calc_ordered_frequencies(haploNum,haploSize,seqs,False)
     ordSeqs=order_positions(hVector,seqs,haploSize)
-    print('prepared kstep',time.time()-start)
-    print(len(ordSeqs))
+    # print('prepared kstep',time.time()-start)
+    # print(len(ordSeqs))
     # print(ordSeqs)
     g,bDict=calc_kstep(haploNum,haploSize,ordSeqs)
-    print('built kstep',time.time()-start)
+    # print('built kstep',time.time()-start)
     finalSeqs=get_intermediate_sequences(ordSeqs,g,counter,bDict,haploSize)
     print(len(finalSeqs))
-    print('got intermediates',time.time()-start)
+    # print('got intermediates',time.time()-start)
     # for item in finalSeqs:
         # print(finalSeqs[item])
     # g=kstep(allDistTuple,g)
@@ -371,7 +371,7 @@ if __name__=="__main__":
         action='store_true',default=False,
         help="Pass this as an argument to align your files; this will cause the program to run much more slowly if you add -f")
     parser.add_argument('-s','--show',
-        action='store_true',default=True,
+        action='store_true',default=False,
         help="Show picture when process is finished")
     parser.add_argument('-g','--ghost',
         action='store_true',default=False,
